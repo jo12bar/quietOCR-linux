@@ -2,9 +2,9 @@
 
 #===============================================================================
 #
-#          FILE:  quietOCR.sh
+#          FILE:  quietOCR.bash
 #
-#         USAGE:  ./quietOCR.sh <inputFile>
+#         USAGE:  ./quietOCR.bash <inputFile>
 #
 #   DESCRIPTION:  OCR a file by creating a TIFF file and
 #
@@ -12,8 +12,9 @@
 #  REQUIREMENTS:  
 #          BUGS:  
 #		 AUTHOR:  Nathan Nesbitt, nathan@nesbitt.ca
+# LINUX EDITION:  Johann M. Barnard, johann.b@telus.net
 #       VERSION:  1.0
-#       CREATED:  2019-05-21
+#       CREATED:  2019-06-07
 #      REVISION:  R1
 #         NOTES:  This script is designed to OCR one file at a time. It can
 #		  be used to do a directory by specifying -a, but will run 
@@ -25,37 +26,50 @@
 
 ## Installing requirements
 
-# Installing homebrew if not installed
-if [[ $(command -v brew) == "" ]]; then
-	echo "Installing homebrew..."
-	/usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
-fi
+PACKAGE_MANAGER_UPDATED=0
+
+function update_package_manager() {
+	if [[ "$PACKAGE_MANAGER_UPDATED" = 0 ]]; then
+		if [[ $(command -v apt-get) ]]; then
+			echo "Updating apt repositories. Need to use sudo."
+			sudo apt-get update
+		fi
+		
+		PACKAGE_MANAGER_UPDATED=1
+	fi
+}
+
+function install_from_package_manager() {
+	update_package_manager
+
+	if [[ $(command -v apt-get) ]]; then
+		echo "Installing $1 from apt. Need to use sudo."
+		sudo apt-get install "$1" -y
+	fi
+}
 
 # Installing imagemagick if not installed (Required for PDF --> TIFF)
-if [[ $(brew ls --versions imagemagick) == "" ]]; then
-	echo "installing imagemagick..."
-	brew install imagemagick
+if [[ ! $(command -v convert) ]]; then
+	install_from_package_manager imagemagick
 fi
 
 # Installing ghostscript if not installed (Required for TIFF --> PDF)
-if [[ $(brew ls --versions ghostscript) == "" ]]; then
-	echo "Installing ghostscript..."
-	brew cask install ghostscript
+if [[ ! $(command -v gs) ]]; then
+	install_from_package_manager ghostscript
 fi
 
 # Installing ocrmypdf if not installed (Required to create searchable PDF's) 
-if [[ $(brew ls --versions ocrmypdf) == "" ]]; then
-	echo "installing ocrmypdf..."
-	brew install ocrmypdf
+if [[ ! $(command -v ocrmypdf) ]]; then
+	install_from_package_manager ocrmypdf
 fi
 
 # Help function
 help () {
      cat << HELP_USAGE
 
- -h	Return help menu
- -a	Runs script on a directory
- -n	Saves the text as a text file, instead of in the PDF
+ -h, -?, --help			Return help menu
+ -a, --all-pdfs			Runs script on a directory
+ -n, --non-destructive	Saves the text as a text file, instead of in the PDF
 
  $0 -h
  $0 [-n]	<inputFile>
@@ -73,10 +87,10 @@ HELP_USAGE
 }
 
 # Function that takes a filename, and OCR's the file.
-OCR () {
+function OCR () {
 	# Removes the file extension
-	filename=${filename%.*}
-	echo $filename
+	filename="${1%.*}"
+	echo "$filename"
 	outputname="$filename.tiff"
 
 	echo "Converting $filename.pdf to TIFF"
@@ -85,12 +99,13 @@ OCR () {
 	echo "OCRing"	
 	tesseract "$outputname" "$filename new.pdf"
 
-	echo " Done $filename new.pdf"
+	echo "Done $filename new.pdf"
 	rm "$outputname"
 }
+export -f OCR # Allows function to be run in subshells.
 
-SEARCHABLE () {
-	filename=${filename%.*}
+function SEARCHABLE () {
+	filename="${1%.*}"
 	outputname="$filename new.pdf"
 	echo "FILENAME: $filename"
 	echo "OUTPUTFILE: $outputname"
@@ -98,36 +113,30 @@ SEARCHABLE () {
 	$(ocrmypdf "$filename.pdf" "$outputname")
 	echo " Done $outputname"
 }
+export -f SEARCHABLE # Allows function to be run in subshells.
 
-if [ "-h" = $1 ];
-then
+if [[ "-h" = "$1" || "-?" = "$1" || "--help" = "$1" || "" = "$1" ]]; then
 	# Run help command
 	help
 else
 	# Run folder
-	if [ "-a" = $1 ]; 
-	then
-		if [ "-n" = $2 ]; 
-		then
+	if [[ "-a" = "$1" || "--all-pdfs" = "$1" ]]; then
+		if [[ "-n" = "$2" || "--non-destructive" = "$2" ]]; then
 			for filename in "$($3)"/*.pdf; do
 				echo "$filename"
-				OCR
+				OCR "$filename"
     		done
 		else
-			for filename in "$($2)/"*.pdf; do
-				echo "$filename"
-				SEARCHABLE
-    		done
+			find "$($2)" -printf 'Processing %p\n' -name '*.pdf' -exec bash -c 'SEARCHABLE "$0"' {} \;
 		fi	
 	# Run on single file
 	else
-		if [ "-n" = $1 ]; 
-		then
+		if [[ "-n" = $1 || "--non-destructive" = "$1" ]]; then
 			filename=$2
-			OCR
+			OCR "$filename"
 		else
 			filename=$1
-			SEARCHABLE
+			SEARCHABLE "$filename"
 		fi
 	fi
 fi

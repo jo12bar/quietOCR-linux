@@ -63,6 +63,11 @@ if [[ ! $(command -v ocrmypdf) ]]; then
 	install_from_package_manager ocrmypdf
 fi
 
+# Installing GNU Parallel if not installed (allows for parallel processing)
+if [[ ! $(command -v parallel) ]]; then
+	install_from_package_manager parallel
+fi
+
 # Help function
 help() {
 	cat <<HELP_USAGE
@@ -97,7 +102,7 @@ function OCR() {
 	convert -density 300 "$filename.pdf" -depth 8 -strip -background white -alpha off "$outputname" || echo 'TIFF conversion error!'
 
 	echo "OCRing"
-	tesseract "$outputname" "$filename new.pdf"
+	tesseract "$outputname" "$filename new.pdf" || echo 'OCR error!'
 
 	echo "Done $filename new.pdf"
 	rm "$outputname"
@@ -110,8 +115,8 @@ function SEARCHABLE() {
 	echo "FILENAME: $filename"
 	echo "OUTPUTFILE: $outputname"
 
-	ocrmypdf "$filename.pdf" "$outputname"
-	echo " Done $outputname"
+	ocrmypdf --force-ocr "$filename.pdf" "$outputname" || echo 'OCR error!'
+	echo "Done $outputname"
 }
 export -f SEARCHABLE # Allows function to be run in subshells.
 
@@ -122,22 +127,28 @@ if [[ "-h" == "$1" || "-?" == "$1" || "--help" == "$1" || "" == "$1" ]]; then
 else
 	# Run folder
 	if [[ "-a" == "$1" || "--all-pdfs" == "$1" ]]; then
+		# WSL, up to Windows 10 release 1903, has a bug where /proc/[pid]/status
+		# only reports 1 CPU core. GNU Parallel relies on this file to figure out
+		# how many cores there are (since it's written in Perl). Therefore, on
+		# WSL systems we limit the total concurrent jobs to 8 (since my laptop's
+		# CPU has 4 cores & hyperthreading enabled).
+		# See https://github.com/microsoft/WSL/issues/3736 for more info.
+		PARALLEL_JOBS_FLAG='-j+0'
+		if [[ $(cat /proc/version) == *"Microsoft"* && $(grep '^Cpus_allowed:' /proc/self/status) == *"00000001"* ]]; then
+			PARALLEL_JOBS_FLAG='-j8'
+		fi
+
 		if [[ "-n" == "$2" || "--non-destructive" == "$2" ]]; then
-			for filename in "$($3)"/*.pdf; do
-				echo "$filename"
-				OCR "$filename"
-			done
+			find "$($3)" -name '*.pdf' | parallel --bar --tag "$PARALLEL_JOBS_FLAG" OCR '{}'
 		else
-			find "$($2)" -printf 'Processing %p\n' -name '*.pdf' -exec bash -c 'SEARCHABLE "$0"' {} \;
+			find "$($2)" -name '*.pdf' | parallel --bar --tag "$PARALLEL_JOBS_FLAG" SEARCHABLE '{}'
 		fi
 		# Run on single file
 	else
 		if [[ "-n" == "$1" || "--non-destructive" == "$1" ]]; then
-			filename="$2"
-			OCR "$filename"
+			OCR "$2"
 		else
-			filename="$1"
-			SEARCHABLE "$filename"
+			SEARCHABLE "$1"
 		fi
 	fi
 fi

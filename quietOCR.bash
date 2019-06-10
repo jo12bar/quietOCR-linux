@@ -75,21 +75,21 @@ fi
 help() {
 	cat <<HELP_USAGE
 
- -h, -?, --help			Return help menu
- -a, --all-pdfs			Runs script on a directory
- -n, --non-destructive	Saves the text as a text file, instead of in the PDF
+ -h, -?, --help          Return help menu
+ -a, --all-pdfs          Runs script on a directory
+ -n, --non-destructive   Saves the text as a text file, instead of in the PDF
 
  $0 -h
- $0 [-n]	<inputFile>
- $0 -a [-n] <fullDirectoryPath>
+ $0 [-n]    <inputFile>
+ $0 -a [-n] [directory]
 
  Examples:
 
- $0 myFile.pdf 			# Single file with searchable text
- $0 -n myFile.pdf 		# Keeps original file and creates a new file with text from document
- $0 -a pwd 			# Makes all of the files in the current working directory searchable
- $0 -a /home/$USER/Documents/ 	# Makes all of the files in the documents directory searchable
- $0 -a -n pwd 			# creates text documents with the words from all of the files from the current directory
+ $0 myFile.pdf        # Single file with searchable text
+ $0 -n myFile.pdf     # Keeps original file and creates a new file with text from document
+ $0 -a                # Recursively makes all of the files in the current working directory searchable
+ $0 -a ~/Documents/   # Makes all of the files in the documents directory searchable
+ $0 -a -n             # creates text documents with the words from all of the files from the current directory
 
 HELP_USAGE
 }
@@ -123,35 +123,43 @@ function SEARCHABLE() {
 }
 export -f SEARCHABLE # Allows function to be run in subshells.
 
-if [[ "-h" == "$1" || "-?" == "$1" || "--help" == "$1" || "" == "$1" ]]; then
+function RECURSIVE() {
+	# WSL, up to Windows 10 release 1903, has a bug where /proc/[pid]/status
+	# only reports 1 CPU core. GNU Parallel relies on this file to figure out
+	# how many cores there are (since it's written in Perl). Therefore, on
+	# WSL systems we limit the total concurrent jobs to 8 (since my laptop's
+	# CPU has 4 cores & hyperthreading enabled).
+	# See https://github.com/microsoft/WSL/issues/3736 for more info.
+	PARALLEL_JOBS_FLAG='-j+0'
+	if [[ $(cat /proc/version) == *"Microsoft"* && $(grep '^Cpus_allowed:' /proc/self/status) == *"00000001"* ]]; then
+		PARALLEL_JOBS_FLAG='-j8'
+	fi
+
+	if [[ "$#" -eq 2 && ("-n" == "$2" || "--non-destructive" == "$2") ]]; then
+		src_dir=${3:-$(pwd)}
+		find "$src_dir" -name '*.pdf' | parallel --bar --tag "$PARALLEL_JOBS_FLAG" OCR '{}'
+	else
+		src_dir=${2:-$(pwd)}
+		find "$src_dir" -name '*.pdf' | parallel --bar --tag "$PARALLEL_JOBS_FLAG" SEARCHABLE '{}'
+	fi
+}
+
+if [[ "$#" -eq 0 || "-h" == "$1" || "-?" == "$1" || "--help" == "$1" ]]; then
 	# Run help command
 	help
 	exit 0
 else
 	# Run folder
 	if [[ "-a" == "$1" || "--all-pdfs" == "$1" ]]; then
-		# WSL, up to Windows 10 release 1903, has a bug where /proc/[pid]/status
-		# only reports 1 CPU core. GNU Parallel relies on this file to figure out
-		# how many cores there are (since it's written in Perl). Therefore, on
-		# WSL systems we limit the total concurrent jobs to 8 (since my laptop's
-		# CPU has 4 cores & hyperthreading enabled).
-		# See https://github.com/microsoft/WSL/issues/3736 for more info.
-		PARALLEL_JOBS_FLAG='-j+0'
-		if [[ $(cat /proc/version) == *"Microsoft"* && $(grep '^Cpus_allowed:' /proc/self/status) == *"00000001"* ]]; then
-			PARALLEL_JOBS_FLAG='-j8'
-		fi
-
-		if [[ "-n" == "$2" || "--non-destructive" == "$2" ]]; then
-			find "$($3)" -name '*.pdf' | parallel --bar --tag "$PARALLEL_JOBS_FLAG" OCR '{}'
-		else
-			find "$($2)" -name '*.pdf' | parallel --bar --tag "$PARALLEL_JOBS_FLAG" SEARCHABLE '{}'
-		fi
+		RECURSIVE "$@"
 		# Run on single file
 	else
 		if [[ "-n" == "$1" || "--non-destructive" == "$1" ]]; then
-			OCR "$2"
+			filename="${2:?error: no filename provided}"
+			OCR "$filename"
 		else
-			SEARCHABLE "$1"
+			filename="${1:?error: no filename provided}"
+			SEARCHABLE "$filename"
 		fi
 	fi
 fi

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-
+#
 #===============================================================================
 #
 #          FILE:  quietOCR.bash
@@ -94,7 +94,7 @@ function OCR() {
 	outputname="$filename.tiff"
 
 	echo "Converting $filename.pdf to TIFF"
-	$(convert -density 300 "$filename.pdf" -depth 8 -strip -background white -alpha off "$outputname")
+	convert -density 300 "$filename.pdf" -depth 8 -strip -background white -alpha off "$outputname" || echo 'TIFF conversion error!'
 
 	echo "OCRing"
 	tesseract "$outputname" "$filename new.pdf"
@@ -110,7 +110,7 @@ function SEARCHABLE() {
 	echo "FILENAME: $filename"
 	echo "OUTPUTFILE: $outputname"
 
-	$(ocrmypdf "$filename.pdf" "$outputname")
+	ocrmypdf "$filename.pdf" "$outputname"
 	echo " Done $outputname"
 }
 export -f SEARCHABLE # Allows function to be run in subshells.
@@ -132,11 +132,11 @@ else
 		fi
 		# Run on single file
 	else
-		if [[ "-n" == $1 || "--non-destructive" == "$1" ]]; then
-			filename=$2
+		if [[ "-n" == "$1" || "--non-destructive" == "$1" ]]; then
+			filename="$2"
 			OCR "$filename"
 		else
-			filename=$1
+			filename="$1"
 			SEARCHABLE "$filename"
 		fi
 	fi

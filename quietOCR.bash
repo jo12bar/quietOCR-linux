@@ -24,6 +24,9 @@
 #
 #===============================================================================
 
+# Make bash fail more readily (good for making a more stable script)
+set -euo pipefail
+
 ## Installing requirements
 
 PACKAGE_MANAGER_UPDATED=0
